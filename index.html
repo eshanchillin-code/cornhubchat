@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instant E2EE Chat - Crimson Noir</title>
+    <!-- Secure cloud-delivery network engine for Serverless P2P -->
+    <script src="https://unpkg.com"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0a0505; color: #f5e6e6; max-width: 600px; margin: 20px auto; padding: 20px; }
+        .setup-box { background: #140b0b; padding: 15px; border-radius: 8px; border: 1px solid #3a1414; margin-bottom: 15px; }
+        h2 { color: #e63946; text-shadow: 0 0 10px rgba(230, 57, 70, 0.3); margin-top: 0; }
+        h3 { color: #b33939; margin-top: 0; }
+        #chatbox { height: 350px; border: 1px solid #3a1414; overflow-y: scroll; padding: 15px; background: #110808; margin-bottom: 10px; border-radius: 8px; display: flex; flex-direction: column; gap: 8px; }
+        .msg-wrapper { max-width: 75%; padding: 10px 14px; border-radius: 12px; position: relative; box-shadow: 0 2px 5px rgba(0,0,0,0.4); }
+        .msg-you { background: #6b1111; color: #fff; align-self: flex-end; border-bottom-right-radius: 2px; border: 1px solid #8a1919; }
+        .msg-friend { background: #1f1a1a; color: #f5e6e6; align-self: flex-start; border-bottom-left-radius: 2px; border: 1px solid #332b2b; }
+        .reply-context { font-size: 0.8em; opacity: 0.7; border-left: 2px solid #ff4d4d; padding-left: 6px; margin-bottom: 6px; color: #ff9999; }
+        .seen-status { font-size: 0.7em; text-align: right; opacity: 0.6; margin-top: 4px; color: #ff8080; }
+        #replying-bar { display: none; background: #240f0f; padding: 8px; font-size: 0.9em; border-radius: 4px; margin-bottom: 5px; justify-content: space-between; border-left: 3px solid #e63946; }
+        .input-area { display: flex; gap: 8px; }
+        input[type="text"] { flex-grow: 1; padding: 12px; background: #140b0b; border: 1px solid #4a1a1a; color: #fff; border-radius: 6px; }
+        input[type="text"]:focus { outline: none; border-color: #e63946; box-shadow: 0 0 5px rgba(230, 57, 70, 0.4); }
+        button { padding: 10px 16px; background: #8a1111; border: 1px solid #a61c1c; color: #fff; cursor: pointer; border-radius: 6px; font-weight: bold; }
+        button:hover:not(:disabled) { background: #a61c1c; }
+        button:disabled { background: #241414; border-color: #331a1a; color: #574242; cursor: not-allowed; }
+        .file-btn { background: #330d0d; border-color: #541616; color: #ff6666; }
+        .file-btn:hover:not(:disabled) { background: #4a1414; }
+        .reply-btn { font-size: 0.75em; background: none; border: none; color: #ff4d4d; cursor: pointer; padding: 0; float: right; margin-left: 12px; opacity: 0.6; }
+        img, audio { max-width: 100%; border-radius: 6px; margin-top: 6px; display: block; }
+        .file-link { color: #ff4d4d; text-decoration: underline; font-weight: bold; }
+        .my-id-style { color: #ff4d4d; font-weight: bold; font-size: 1.2em; background: #1a0a0a; padding: 4px 8px; border-radius: 4px; border: 1px solid #4a1a1a; margin-left: 5px;}
+    </style>
+</head>
+<body>
+
+    <h2>Zero-Storage Messenger (Crimson Noir)</h2>
+
+    <!-- Connection Vault Panel -->
+    <div class="setup-box" id="setupPanel">
+        <h3>🚪 Connection Vault</h3>
+        <p>Your Chat ID: <span id="myIdDisplay" class="my-id-style">Generating...</span></p>
+        
+        <div class="input-area" style="margin-top: 15px;">
+            <input type="text" id="friendIdInput" placeholder="Enter your friend's Chat ID..." />
+            <button onclick="connectToFriend()">Establish Connection</button>
+        </div>
+    </div>
+
+    <!-- Active Chat Screen Interface -->
+    <div id="chatbox"></div>
+    
+    <div id="replying-bar">
+        <span id="replying-text" style="color: #ff9999;">Replying to...</span>
+        <button onclick="cancelReply()" style="padding:2px 8px; background:#4a0e0e; border: 1px solid #731818; font-size: 0.8em;">Cancel</button>
+    </div>
+
+    <div class="input-area">
+        <input type="text" id="msg" placeholder="Awaiting key integration authorization..." disabled onfocus="sendSeenReceipt()"/>
+        <button id="sendBtn" onclick="sendMessage()" disabled>Send</button>
+        <input type="file" id="fileInput" style="display: none;" onchange="handleFileSelect(this)" />
+        <button id="fileBtn" class="file-btn" onclick="document.getElementById('fileInput').click()" disabled>📎 File</button>
+    </div>
+
+<script>
+    const chatbox = document.getElementById('chatbox');
+    const msgInput = document.getElementById('msg');
+    const sendBtn = document.getElementById('sendBtn');
+    const fileBtn = document.getElementById('fileBtn');
+    const replyingBar = document.getElementById('replying-bar');
+    const replyingText = document.getElementById('replying-text');
+    const myIdDisplay = document.getElementById('myIdDisplay');
+
+    let conn = null;
+    let currentReplyId = null;
+
+    // Initializes peer networking engine
+    const peer = new Peer(null, { debug: 1 });
+
+    peer.on('open', (id) => { myIdDisplay.innerText = id; });
+    peer.on('connection', (incomingConn) => { conn = incomingConn; setupChatSession(); });
+
+    function connectToFriend() {
+        const friendId = document.getElementById('friendIdInput').value.trim();
+        if (!friendId) return alert("Please enter your friend's Chat ID");
+        conn = peer.connect(friendId);
+        setupChatSession();
+    }
+
+    function setupChatSession() {
+        conn.on('open', () => {
+            document.getElementById('setupPanel').style.display = 'none';
+            msgInput.placeholder = "Broadcast a secure flash message...";
+            msgInput.disabled = false;
+            sendBtn.disabled = false;
+            fileBtn.disabled = false;
+        });
+
+        conn.on('data', (data) => {
+            const payload = JSON.parse(data);
+            if (payload.type === 'seen') {
+                const lastYourMsg = chatbox.querySelectorAll('.msg-you .seen-status');
+                if (lastYourMsg.length > 0) lastYourMsg[lastYourMsg.length - 1].innerText = '✓ Seen';
+                return;
+            }
+            appendMessage("Friend", payload);
+            if (document.hasFocus()) sendSeenReceipt();
+        });
+    }
+
+    // --- APPLICATION LOGIC ---
+    function sendMessage() {
+        const text = msgInput.value;
+        if (!text || !conn) return;
+        const payload = {
+            id: 'msg-' + Date.now(),
+            type: 'text',
+            content: text,
+            replyTo: currentReplyId ? document.getElementById(currentReplyId).querySelector('.msg-content').innerText : null
+        };
+        conn.send(JSON.stringify(payload));
+        appendMessage("You", payload);
+        msgInput.value = "";
+        cancelReply();
+    }
+
+    function sendSeenReceipt() {
+        if (conn && conn.open) conn.send(JSON.stringify({ type: 'seen' }));
+    }
+
+    function handleFileSelect(input) {
+        const file = input.files[0];
+        if (!file || !conn) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            let fileType = 'file';
+            if (file.type.startsWith('image/')) fileType = 'image';
+            if (file.type.startsWith('audio/')) fileType = 'audio';
+            const payload = {
+                id: 'msg-' + Date.now(),
+                type: fileType,
+                content: e.target.result,
+                fileName: file.name,
+                replyTo: currentReplyId ? document.getElementById(currentReplyId).querySelector('.msg-content').innerText : null
+            };
+            conn.send(JSON.stringify(payload));
+            appendMessage("You", payload);
+            cancelReply();
+        };
+        reader.readAsDataURL(file);
+        input.value = "";
+    }
+
+    function setReplyContext(msgId, senderName) {
+        currentReplyId = msgId;
+        const targetText = document.getElementById(msgId).querySelector('.msg-content').innerText;
+        replyingText.innerText = `Replying to ${senderName}: "${targetText.substring(0, 15)}..."`;
+        replyingBar.style.display = 'flex';
+        msgInput.focus();
+    }
+
+    function cancelReply() { currentReplyId = null; replyingBar.style.display = 'none'; }
+
+    function appendMessage(sender, payload) {
+        const isYou = sender === "You";
+        const wrapper = document.createElement('div');
+        wrapper.id = payload.id;
+        wrapper.className = `msg-wrapper ${isYou ? 'msg-you' : 'msg-friend'}`;
+
+        if (payload.replyTo) {
+            const replyDiv = document.createElement('div');
+            replyDiv.className = 'reply-context';
+            replyDiv.innerText = `⤺ ${payload.replyTo}`;
+            wrapper.appendChild(replyDiv);
+        }
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'msg-content';
+
+        if (payload.type === 'text') contentDiv.innerText = payload.content;
+        else if (payload.type === 'image') { const img = document.createElement('img'); img.src = payload.content; contentDiv.appendChild(img); }
+        else if (payload.type === 'audio') { const aud = document.createElement('audio'); aud.src = payload.content; aud.controls = true; contentDiv.appendChild(aud); }
+        else if (payload.type === 'file') {
+            const link = document.createElement('a'); link.href = payload.content; link.download = payload.fileName;
+            link.className = 'file-link'; link.innerText = `📁 Save Payload: ${payload.fileName}`; contentDiv.appendChild(link);
+        }
+        wrapper.appendChild(contentDiv);
+
+        const replyBtn = document.createElement('button');
+        replyBtn.className = 'reply-btn'; replyBtn.innerText = '↳ Reply';
+        replyBtn.onclick = () => setReplyContext(payload.id, sender);
+        wrapper.appendChild(replyBtn);
+
