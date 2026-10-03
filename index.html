@@ -74,10 +74,20 @@
     let conn = null;
     let currentReplyId = null;
 
-    // Initializes peer networking engine
-    const peer = new Peer(null, { debug: 1 });
+    // Fixed configuration mapping to use a highly reliable public fallback node infrastructure
+    const peer = new Peer(null, {
+        host: 'peerjs.com',
+        secure: true,
+        port: 443,
+        debug: 1
+    });
 
     peer.on('open', (id) => { myIdDisplay.innerText = id; });
+    peer.on('error', (err) => { 
+        console.error(err);
+        myIdDisplay.innerText = "Error connecting. Retrying...";
+    });
+    
     peer.on('connection', (incomingConn) => { conn = incomingConn; setupChatSession(); });
 
     function connectToFriend() {
@@ -108,7 +118,6 @@
         });
     }
 
-    // --- APPLICATION LOGIC ---
     function sendMessage() {
         const text = msgInput.value;
         if (!text || !conn) return;
@@ -129,7 +138,7 @@
     }
 
     function handleFileSelect(input) {
-        const file = input.files[0];
+        const file = input.files;
         if (!file || !conn) return;
         const reader = new FileReader();
         reader.onload = function(e) {
@@ -187,7 +196,3 @@
         wrapper.appendChild(contentDiv);
 
         const replyBtn = document.createElement('button');
-        replyBtn.className = 'reply-btn'; replyBtn.innerText = '↳ Reply';
-        replyBtn.onclick = () => setReplyContext(payload.id, sender);
-        wrapper.appendChild(replyBtn);
-
